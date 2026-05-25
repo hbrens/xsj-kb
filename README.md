@@ -23,5 +23,6 @@
 ## 常用命令
 
 ```bash
-uv sync  # 创建虚拟环境并安装依赖（venv 在 .venv/ 下）
+uv sync                          # 创建虚拟环境并安装依赖（venv 在 .venv/ 下）
+uv run python mcp/server/server.py  # 启动 MCP 网关（默认 self-host，读取 .env 中的 API key）
 ```
