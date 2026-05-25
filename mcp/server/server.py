@@ -16,11 +16,12 @@
 
 import json
 import logging
+import os
 import random
-import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from enum import StrEnum
 from functools import wraps
 from typing import Any
 
@@ -32,7 +33,11 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.responses import JSONResponse, Response
 from starlette.routing import Mount, Route
-from enum import StrEnum
+
+try:
+    from .audit import DEFAULT_DB_PATH, MCPAuditConfig, audit_store
+except ImportError:
+    from audit import DEFAULT_DB_PATH, MCPAuditConfig, audit_store
 
 
 class LaunchMode(StrEnum):
@@ -53,6 +58,11 @@ MODE = ""
 TRANSPORT_SSE_ENABLED = True
 TRANSPORT_STREAMABLE_HTTP_ENABLED = True
 JSON_RESPONSE = True
+
+
+def parse_bool_flag(key: str, default: bool) -> bool:
+    val = os.environ.get(key, str(default))
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
 
 
 class RAGFlowConnector:
@@ -540,34 +550,43 @@ async def call_tool(
     connector: RAGFlowConnector,
     api_key: str,
 ) -> list[types.TextContent | types.ImageContent | types.EmbeddedResource]:
-    if name == "ragflow_retrieval":
-        document_ids = arguments.get("document_ids", [])
-        dataset_ids = arguments.get("dataset_ids", [])
-        question = arguments.get("question", "")
-        page = arguments.get("page", 1)
-        page_size = arguments.get("page_size", 10)
-        similarity_threshold = arguments.get("similarity_threshold", 0.2)
-        vector_similarity_weight = arguments.get("vector_similarity_weight", 0.3)
-        keyword = arguments.get("keyword", False)
-        top_k = arguments.get("top_k", 1024)
-        rerank_id = arguments.get("rerank_id")
-        force_refresh = arguments.get("force_refresh", False)
+    audit_call = audit_store.start_call(mode=str(MODE), tool_name=name, arguments=arguments, api_key=api_key)
 
-        return await connector.retrieval(
-            api_key=api_key,
-            dataset_ids=dataset_ids,
-            document_ids=document_ids,
-            question=question,
-            page=page,
-            page_size=page_size,
-            similarity_threshold=similarity_threshold,
-            vector_similarity_weight=vector_similarity_weight,
-            keyword=keyword,
-            top_k=top_k,
-            rerank_id=rerank_id,
-            force_refresh=force_refresh,
-        )
-    raise ValueError(f"Tool not found: {name}")
+    try:
+        if name == "ragflow_retrieval":
+            document_ids = arguments.get("document_ids", [])
+            dataset_ids = arguments.get("dataset_ids", [])
+            question_text = arguments.get("question", "")
+            page = arguments.get("page", 1)
+            page_size = arguments.get("page_size", 10)
+            similarity_threshold = arguments.get("similarity_threshold", 0.2)
+            vector_similarity_weight = arguments.get("vector_similarity_weight", 0.3)
+            keyword = arguments.get("keyword", False)
+            top_k = arguments.get("top_k", 1024)
+            rerank_id = arguments.get("rerank_id")
+            force_refresh = arguments.get("force_refresh", False)
+
+            result = await connector.retrieval(
+                api_key=api_key,
+                dataset_ids=dataset_ids,
+                document_ids=document_ids,
+                question=question_text,
+                page=page,
+                page_size=page_size,
+                similarity_threshold=similarity_threshold,
+                vector_similarity_weight=vector_similarity_weight,
+                keyword=keyword,
+                top_k=top_k,
+                rerank_id=rerank_id,
+                force_refresh=force_refresh,
+            )
+            await audit_store.record_success(audit_call, result)
+            return result
+
+        raise ValueError(f"Tool not found: {name}")
+    except Exception as exc:
+        await audit_store.record_error(audit_call, exc)
+        raise
 
 
 def create_starlette_app():
@@ -688,16 +707,10 @@ def create_starlette_app():
     help="Enable or disable JSON response mode for streamable-http (default: enabled)",
 )
 def main(base_url, host, port, mode, api_key, transport_sse_enabled, transport_streamable_http_enabled, json_response):
-    import os
-
     import uvicorn
     from dotenv import load_dotenv
 
     load_dotenv()
-
-    def parse_bool_flag(key: str, default: bool) -> bool:
-        val = os.environ.get(key, str(default))
-        return str(val).strip().lower() in ("1", "true", "yes", "on")
 
     global BASE_URL, HOST, PORT, MODE, HOST_API_KEY, TRANSPORT_SSE_ENABLED, TRANSPORT_STREAMABLE_HTTP_ENABLED, JSON_RESPONSE
     BASE_URL = os.environ.get("RAGFLOW_MCP_BASE_URL", base_url)
@@ -708,6 +721,13 @@ def main(base_url, host, port, mode, api_key, transport_sse_enabled, transport_s
     TRANSPORT_SSE_ENABLED = parse_bool_flag("RAGFLOW_MCP_TRANSPORT_SSE_ENABLED", transport_sse_enabled)
     TRANSPORT_STREAMABLE_HTTP_ENABLED = parse_bool_flag("RAGFLOW_MCP_TRANSPORT_STREAMABLE_ENABLED", transport_streamable_http_enabled)
     JSON_RESPONSE = parse_bool_flag("RAGFLOW_MCP_JSON_RESPONSE", json_response)
+    audit_config = MCPAuditConfig(
+        enabled=parse_bool_flag("RAGFLOW_MCP_AUDIT_ENABLED", True),
+        db_path=os.environ.get("RAGFLOW_MCP_AUDIT_DB_PATH", str(DEFAULT_DB_PATH)),
+        log_question=parse_bool_flag("RAGFLOW_MCP_AUDIT_LOG_QUESTION", True),
+        max_text=int(os.environ.get("RAGFLOW_MCP_AUDIT_MAX_TEXT", "1000")),
+    )
+    audit_store.configure(audit_config)
 
     if MODE == LaunchMode.SELF_HOST and not HOST_API_KEY:
         raise click.UsageError("--api-key is required when --mode is 'self-host'")
@@ -729,6 +749,9 @@ __  __  ____ ____       ____  _____ ______     _______ ____
     print(f"MCP host: {HOST}", flush=True)
     print(f"MCP port: {PORT}", flush=True)
     print(f"MCP base_url: {BASE_URL}", flush=True)
+    print(f"MCP audit enabled: {'yes' if audit_config.enabled else 'no'}", flush=True)
+    if audit_config.enabled:
+        print(f"MCP audit database: {audit_config.db_path}", flush=True)
 
     if not any([TRANSPORT_SSE_ENABLED, TRANSPORT_STREAMABLE_HTTP_ENABLED]):
         print("At least one transport should be enabled, enable streamable-http automatically", flush=True)

@@ -47,6 +47,10 @@ Desktop.ini
 *.log
 logs/
 
+# Runtime data
+var/*.sqlite3
+var/*.sqlite3-*
+
 # Testing
 .coverage
 htmlcov/
