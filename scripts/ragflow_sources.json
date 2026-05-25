@@ -1,0 +1,70 @@
+{
+  "base_url_env": "RAGFLOW_MCP_BASE_URL",
+  "api_key_env": "RAGFLOW_MCP_HOST_API_KEY",
+  "state_path": "var/ragflow-sync-state.json",
+  "sources_root": "sources",
+  "default_include_extensions": [
+    ".c",
+    ".cpp",
+    ".csv",
+    ".doc",
+    ".docx",
+    ".go",
+    ".h",
+    ".html",
+    ".ini",
+    ".java",
+    ".js",
+    ".json",
+    ".json5",
+    ".jsonl",
+    ".kt",
+    ".md",
+    ".mdx",
+    ".pdf",
+    ".php",
+    ".ppt",
+    ".pptx",
+    ".py",
+    ".rtf",
+    ".sh",
+    ".sql",
+    ".ts",
+    ".txt",
+    ".xml",
+    ".xls",
+    ".xlsx",
+    ".yml",
+    ".yaml",
+    ".ets"
+  ],
+  "exclude_dirs": [
+    ".git",
+    ".gradle",
+    ".hvigor",
+    ".idea",
+    ".preview",
+    ".vscode",
+    "build",
+    "dist",
+    "node_modules",
+    "oh_modules",
+    "out"
+  ],
+  "exclude_files": [
+    ".DS_Store",
+    ".gitkeep"
+  ],
+  "datasets": [
+    {
+      "source_dir": "04_harmonyos-docs",
+      "dataset_id": "29c76db0585a11f1ae6e4fbffc0cb4e8",
+      "dataset_name": "04_harmonyos-docs"
+    },
+    {
+      "source_dir": "06_harmonyos-samples",
+      "dataset_id": "3a529d12585a11f1ae6e4fbffc0cb4e8",
+      "dataset_name": "harmonyos-samples"
+    }
+  ]
+}

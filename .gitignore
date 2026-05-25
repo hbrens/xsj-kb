@@ -50,6 +50,11 @@ logs/
 # Runtime data
 var/*.sqlite3
 var/*.sqlite3-*
+var/ragflow-sync-state.json
+
+# Source corpora
+sources/*
+!sources/*/.gitkeep
 
 # Testing
 .coverage
