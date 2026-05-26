@@ -192,7 +192,7 @@ def iter_source_files(config: dict[str, Any], dataset: DatasetConfig) -> list[Pa
 
 def source_key(dataset: DatasetConfig, file_path: Path, config: dict[str, Any]) -> str:
     sources_root = PROJECT_ROOT / config.get("sources_root", "sources")
-    return normalize_rel(file_path.relative_to(sources_root))
+    return normalize_rel(file_path.relative_to(sources_root / dataset.source_dir))
 
 
 def upload_name_and_path(file_path: Path, config: dict[str, Any], dataset: DatasetConfig) -> tuple[str, Path | None]:
@@ -371,7 +371,6 @@ def cmd_upload(args: argparse.Namespace) -> int:
             label = f"{dataset.source_dir} -> {dataset.dataset_name}"
             print(f"{label}: {len(files)} files to check")
             bar = ProgressBar(len(files))
-            pending_records: list[dict[str, Any]] = []
 
             # Verify remote state first (one API call per dataset)
             result = verify_remote(state, base_url, api_key, dataset)
@@ -402,7 +401,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
                         continue
                     try:
                         delete_docs(base_url, api_key, dataset, [item["document_id"]])
-                        pending_records.append({
+                        state.upsert_many([{
                             "path": key,
                             "source_dir": dataset.source_dir,
                             "dataset_id": dataset.dataset_id,
@@ -416,7 +415,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
                             "remote_status": "",
                             "remote_msg": "",
                             "last_verified": "",
-                        })
+                        }])
                     except Exception as exc:
                         bar.tick("failed", f"delete {key}: {exc}")
                         continue
@@ -426,7 +425,7 @@ def cmd_upload(args: argparse.Namespace) -> int:
                 try:
                     doc = upload_one(base_url, api_key, config, dataset, file_path)
                     doc_id = doc["id"]
-                    pending_records.append({
+                    state.upsert_many([{
                         "path": key,
                         "source_dir": dataset.source_dir,
                         "dataset_id": dataset.dataset_id,
@@ -440,13 +439,11 @@ def cmd_upload(args: argparse.Namespace) -> int:
                         "remote_status": "",
                         "remote_msg": "",
                         "last_verified": "",
-                    })
+                    }])
                     uploaded_for_parse.setdefault(dataset.dataset_id, []).append(doc_id)
                     bar.tick("upload")
                 except Exception as exc:
                     bar.tick("failed", f"upload {key}: {exc}")
-            if pending_records:
-                state.upsert_many(pending_records)
             bar.finish(label)
     finally:
         state.close()
