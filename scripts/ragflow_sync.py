@@ -372,11 +372,21 @@ def cmd_upload(args: argparse.Namespace) -> int:
             print(f"{label}: {len(files)} files to check")
             bar = ProgressBar(len(files))
             pending_records: list[dict[str, Any]] = []
+
+            # Verify remote state first (one API call per dataset)
+            result = verify_remote(state, base_url, api_key, dataset)
+            if result["missing"]:
+                print(f"  remote: {result['missing']} documents missing, will re-upload")
             for file_path in files:
                 key = source_key(dataset, file_path, config)
                 digest = sha256_file(file_path)
                 item = state.get_file(key)
-                if item and item.get("sha256") == digest and item.get("document_id"):
+                if (
+                    item
+                    and item.get("sha256") == digest
+                    and item.get("document_id")
+                    and item.get("remote_status") != "missing"
+                ):
                     if args.verbose:
                         print(f"skip same {key}")
                     bar.tick("skip")
