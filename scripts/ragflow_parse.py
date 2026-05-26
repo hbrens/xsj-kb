@@ -39,7 +39,7 @@ def doc_label(doc: dict) -> str:
     return doc.get("location") or doc.get("name") or doc["id"][:12]
 
 
-def progress_bar(ratio: float, width: int = 20) -> str:
+def progress_bar(ratio: float, width: int = 40) -> str:
     filled = int(width * max(0.0, min(1.0, ratio)))
     return f"[{'#' * filled}{'.' * (width - filled)}]"
 
@@ -153,7 +153,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 elapsed = time.time() - batch_start
                 pct = (done / len(batch_ids) * 100) if batch_ids else 0
 
-                status_parts = f"done={done}"
+                status_parts = f"done={done}/{len(batch_ids)}"
                 if fail:
                     status_parts += f" fail={fail}"
                 if running:
