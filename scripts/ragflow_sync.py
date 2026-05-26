@@ -198,7 +198,7 @@ def source_key(dataset: DatasetConfig, file_path: Path, config: dict[str, Any]) 
 def upload_name_and_path(file_path: Path, config: dict[str, Any], dataset: DatasetConfig) -> tuple[str, Path | None]:
     suffix = file_path.suffix.lower()
     sources_root = PROJECT_ROOT / config.get("sources_root", "sources")
-    rel = normalize_rel(file_path.relative_to(sources_root))
+    rel = normalize_rel(file_path.relative_to(sources_root / dataset.source_dir))
     if suffix in SUPPORTED_DIRECT_EXTENSIONS:
         return rel, None
     if suffix in TEXT_WRAP_EXTENSIONS:
