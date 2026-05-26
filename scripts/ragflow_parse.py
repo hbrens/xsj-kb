@@ -29,23 +29,6 @@ RUN_STATUS_LABELS = {
 }
 
 
-def trigger_parse(base_url: str, api_key: str, dataset: DatasetConfig, doc_ids: list[str], batch_size: int = 100) -> None:
-    if not doc_ids:
-        return
-    for i in range(0, len(doc_ids), batch_size):
-        batch = doc_ids[i : i + batch_size]
-        request_json(
-            "POST",
-            base_url,
-            api_key,
-            f"/datasets/{dataset.dataset_id}/documents/parse",
-            json_body={"document_ids": batch},
-        )
-        if len(doc_ids) > batch_size:
-            print(f"  triggered batch {i // batch_size + 1}/{(len(doc_ids) + batch_size - 1) // batch_size} ({len(batch)} docs)")
-            time.sleep(2)
-
-
 def refresh_docs(base_url: str, api_key: str, dataset: DatasetConfig, doc_ids: set[str]) -> list[dict]:
     """Re-fetch only the documents we care about."""
     all_docs = list_remote_docs(base_url, api_key, dataset)
@@ -109,83 +92,96 @@ def cmd_run(args: argparse.Namespace) -> int:
     dataset_by_id = {ds.dataset_id: ds for ds in config_datasets(config)}
     target_datasets = pick_datasets(config, args.dataset)
 
-    # Collect documents to parse
-    targets: dict[str, list[str]] = {}  # dataset_id -> doc_ids
+    # Query remote status — skips DONE docs automatically (resumable on restart)
+    targets: dict[str, list[str]] = {}
+    all_doc_ids: dict[str, set[str]] = {}  # all doc ids for final summary
     for dataset in target_datasets:
         docs = list_remote_docs(base_url, api_key, dataset)
+        all_doc_ids[dataset.dataset_id] = {d["id"] for d in docs}
         if args.only_failed:
             ids = [d["id"] for d in docs if d.get("run") == "FAIL"]
         else:
             ids = [d["id"] for d in docs if d.get("run") != "DONE"]
         if ids:
             targets[dataset.dataset_id] = ids
-            print(f"{dataset.dataset_name}: {len(ids)} documents to parse")
+            done_count = sum(1 for d in docs if d.get("run") == "DONE")
+            print(f"{dataset.dataset_name}: {len(ids)} to parse, {done_count} already done")
         else:
-            print(f"{dataset.dataset_name}: nothing to parse")
+            print(f"{dataset.dataset_name}: all done")
 
     if not targets:
         print("All documents already parsed.")
         return 0
 
-    # Trigger parsing
+    # Flatten all doc ids for cross-dataset progress tracking
+    batch_size = args.batch_size
+    batch_interval = args.batch_interval
+    global_start = time.time()
+    total_batches = sum((len(ids) + batch_size - 1) // batch_size for ids in targets.values())
+    batch_num = 0
+
     for dataset_id, ids in targets.items():
         ds = dataset_by_id[dataset_id]
-        print(f"Triggering parse for {ds.dataset_name} ({len(ids)} docs)...")
-        trigger_parse(base_url, api_key, ds, ids)
+        # Split into batches
+        batches = [ids[i : i + batch_size] for i in range(0, len(ids), batch_size)]
+        for batch_idx, batch_ids in enumerate(batches):
+            batch_num += 1
+            print(f"\n[{batch_num}/{total_batches}] {ds.dataset_name}: triggering {len(batch_ids)} docs...")
 
-    # Poll loop
-    all_doc_ids: dict[str, set[str]] = {did: set(ids) for did, ids in targets.items()}
-    start_time = time.time()
-    last_progress_time = start_time
-    prev_total_done = 0
+            try:
+                request_json(
+                    "POST", base_url, api_key,
+                    f"/datasets/{ds.dataset_id}/documents/parse",
+                    json_body={"document_ids": batch_ids},
+                )
+            except Exception as e:
+                print(f"  ERROR triggering parse: {e}")
+                continue
 
-    print()
-    while True:
-        total_done = 0
-        total_docs = 0
-        any_running = False
-        total_fail = 0
+            # Poll until this batch is all DONE/FAIL
+            batch_doc_set = set(batch_ids)
+            batch_start = time.time()
+            last_progress = batch_start
+            prev_done = 0
 
-        for dataset_id, doc_ids in all_doc_ids.items():
-            ds = dataset_by_id[dataset_id]
-            docs = refresh_docs(base_url, api_key, ds, doc_ids)
-            summary = summarize_docs_status(docs)
-            done_count = summary.get("done", 0)
-            fail_count = summary.get("fail", 0)
-            total_done += done_count
-            total_docs += len(docs)
-            total_fail += fail_count
+            while True:
+                docs = refresh_docs(base_url, api_key, ds, batch_doc_set)
+                summary = summarize_docs_status(docs)
+                done = summary.get("done", 0)
+                fail = summary.get("fail", 0)
+                running = summary.get("running", 0) + summary.get("pending", 0)
+                elapsed = time.time() - batch_start
+                pct = (done / len(batch_ids) * 100) if batch_ids else 0
 
-            if summary.get("running", 0) > 0 or summary.get("pending", 0) > 0:
-                any_running = True
+                status_parts = f"done={done}"
+                if fail:
+                    status_parts += f" fail={fail}"
+                if running:
+                    status_parts += f" running={running}"
+                print(f"\r  [{progress_bar(pct)}] {pct:5.1f}%  {status_parts}  ({elapsed:.0f}s)", end="", flush=True)
 
-        # Reset inactivity timer when new documents finish
-        if total_done > prev_total_done:
-            last_progress_time = time.time()
-            prev_total_done = total_done
+                if done > prev_done:
+                    last_progress = time.time()
+                    prev_done = done
 
-        # Overall progress line (overwrite in place)
-        overall_pct = (total_done / total_docs * 100) if total_docs else 0
-        elapsed = time.time() - start_time
-        remaining = total_docs - total_done - total_fail
-        status_parts = f"done={total_done}"
-        if total_fail:
-            status_parts += f" fail={total_fail}"
-        if remaining:
-            status_parts += f" remaining={remaining}"
-        print(f"\r  {progress_bar(overall_pct)} {overall_pct:5.1f}%  {status_parts}  ({elapsed:.0f}s)", end="", flush=True)
+                if running == 0:
+                    break
+                if time.time() - last_progress >= args.timeout:
+                    print(f"\n  No progress for {args.timeout:.0f}s, moving on. {running} docs still processing.")
+                    break
 
-        # Check completion
-        if not any_running:
-            break
-        if time.time() - last_progress_time >= args.timeout:
-            print(f"\nNo progress for {args.timeout:.0f}s. {remaining} documents may still be processing.")
-            return 1
+                time.sleep(args.interval)
 
-        time.sleep(args.interval)
+            print()  # newline after progress bar
+
+            # Interval between batches (skip after last batch)
+            if batch_num < total_batches:
+                print(f"  Waiting {batch_interval}s before next batch...")
+                time.sleep(batch_interval)
 
     # Final summary
-    print("\n=== Parse Complete ===")
+    elapsed = time.time() - global_start
+    print(f"\n=== Parse Complete ({elapsed:.0f}s) ===")
     for dataset_id, doc_ids in all_doc_ids.items():
         ds = dataset_by_id[dataset_id]
         docs = refresh_docs(base_url, api_key, ds, doc_ids)
@@ -208,6 +204,8 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--interval", type=float, default=5.0, help="Poll interval in seconds (default: 5).")
     run.add_argument("--timeout", type=float, default=600.0, help="Stop if no new documents finish for this many seconds (default: 600).")
     run.add_argument("--only-failed", action="store_true", help="Only re-parse documents that previously failed.")
+    run.add_argument("--batch-size", type=int, default=100, help="Documents per parse batch (default: 100).")
+    run.add_argument("--batch-interval", type=float, default=120.0, help="Seconds to wait between batches (default: 120).")
     run.set_defaults(func=cmd_run)
 
     return parser
