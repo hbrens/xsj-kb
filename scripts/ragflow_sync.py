@@ -8,12 +8,52 @@ import mimetypes
 import os
 import sys
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import requests
 from dotenv import load_dotenv
+
+
+class ProgressBar:
+    """Minimal progress bar with live counter and final summary."""
+
+    def __init__(self, total: int) -> None:
+        self.total = total
+        self.current = 0
+        self.counts: dict[str, int] = {}
+        self.errors: list[str] = []
+        self._start = time.monotonic()
+
+    def tick(self, category: str, detail: str = "") -> None:
+        self.current += 1
+        self.counts[category] = self.counts.get(category, 0) + 1
+        if category == "failed" and detail:
+            self.errors.append(detail)
+        self._render()
+
+    def _render(self) -> None:
+        elapsed = time.monotonic() - self._start
+        pct = self.current * 100 // self.total if self.total else 100
+        parts = [f"{k}={v}" for k, v in self.counts.items() if k != "failed"]
+        status = " ".join(parts) if parts else ""
+        line = f"\r[{self.current}/{self.total}] {pct}% {status}"
+        sys.stderr.write(line.ljust(80))
+        sys.stderr.flush()
+
+    def finish(self, dataset_label: str) -> None:
+        elapsed = time.monotonic() - self._start
+        sys.stderr.write("\r" + " " * 80 + "\r")
+        sys.stderr.flush()
+        elapsed_str = f"{elapsed:.1f}s"
+        parts = [f"{k}={v}" for k, v in sorted(self.counts.items())]
+        print(f"{dataset_label}: done ({elapsed_str}) [{', '.join(parts)}]")
+        if self.errors:
+            print(f"  failures ({len(self.errors)}):")
+            for err in self.errors:
+                print(f"    {err}")
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -337,7 +377,9 @@ def cmd_upload(args: argparse.Namespace) -> int:
     uploaded_for_parse: dict[str, list[str]] = {}
     for dataset in pick_datasets(config, args.dataset):
         files = iter_source_files(config, dataset)
-        print(f"{dataset.source_dir}: scanning {len(files)} files")
+        label = f"{dataset.source_dir} -> {dataset.dataset_name}"
+        print(f"{label}: {len(files)} files to check")
+        bar = ProgressBar(len(files))
         for file_path in files:
             key = source_key(dataset, file_path, config)
             digest = sha256_file(file_path)
@@ -345,16 +387,44 @@ def cmd_upload(args: argparse.Namespace) -> int:
             if item and item.get("sha256") == digest and item.get("document_id"):
                 if args.verbose:
                     print(f"skip same {key}")
+                bar.tick("skip")
                 continue
             if item and item.get("document_id") and item.get("sha256") != digest:
                 if not args.replace_changed:
-                    print(f"changed {key} (use --replace-changed to replace remote document)")
+                    if args.verbose:
+                        print(f"changed {key} (use --replace-changed to replace remote document)")
+                    bar.tick("changed")
                     continue
                 if args.dry_run:
-                    print(f"would replace {key}")
+                    bar.tick("would_replace")
                     continue
-                print(f"delete old {key} {item['document_id']}")
-                delete_docs(base_url, api_key, dataset, [item["document_id"]])
+                try:
+                    delete_docs(base_url, api_key, dataset, [item["document_id"]])
+                    put_file_state(
+                        state,
+                        key,
+                        {
+                            "dataset_id": dataset.dataset_id,
+                            "dataset_name": dataset.dataset_name,
+                            "source_dir": dataset.source_dir,
+                            "sha256": item.get("sha256", ""),
+                            "size": item.get("size", 0),
+                            "document_id": "",
+                            "document_name": item.get("document_name", ""),
+                            "location": item.get("location", ""),
+                            "status": "deleted_before_replace",
+                        },
+                    )
+                    save_json(state_file, state)
+                except Exception as exc:
+                    bar.tick("failed", f"delete {key}: {exc}")
+                    continue
+            if args.dry_run:
+                bar.tick("would_upload")
+                continue
+            try:
+                doc = upload_one(base_url, api_key, config, dataset, file_path)
+                doc_id = doc["id"]
                 put_file_state(
                     state,
                     key,
@@ -362,37 +432,19 @@ def cmd_upload(args: argparse.Namespace) -> int:
                         "dataset_id": dataset.dataset_id,
                         "dataset_name": dataset.dataset_name,
                         "source_dir": dataset.source_dir,
-                        "sha256": item.get("sha256", ""),
-                        "size": item.get("size", 0),
-                        "document_id": "",
-                        "document_name": item.get("document_name", ""),
-                        "location": item.get("location", ""),
-                        "status": "deleted_before_replace",
+                        "sha256": digest,
+                        "size": file_path.stat().st_size,
+                        "document_id": doc_id,
+                        "document_name": doc.get("name") or file_path.name,
+                        "location": doc.get("location", ""),
                     },
                 )
                 save_json(state_file, state)
-            if args.dry_run:
-                print(f"would upload {key}")
-                continue
-            print(f"upload {key}")
-            doc = upload_one(base_url, api_key, config, dataset, file_path)
-            doc_id = doc["id"]
-            put_file_state(
-                state,
-                key,
-                {
-                    "dataset_id": dataset.dataset_id,
-                    "dataset_name": dataset.dataset_name,
-                    "source_dir": dataset.source_dir,
-                    "sha256": digest,
-                    "size": file_path.stat().st_size,
-                    "document_id": doc_id,
-                    "document_name": doc.get("name") or file_path.name,
-                    "location": doc.get("location", ""),
-                },
-            )
-            save_json(state_file, state)
-            uploaded_for_parse.setdefault(dataset.dataset_id, []).append(doc_id)
+                uploaded_for_parse.setdefault(dataset.dataset_id, []).append(doc_id)
+                bar.tick("upload")
+            except Exception as exc:
+                bar.tick("failed", f"upload {key}: {exc}")
+        bar.finish(label)
     if args.parse and not args.dry_run:
         dataset_by_id = {ds.dataset_id: ds for ds in config_datasets(config)}
         for dataset_id, ids in uploaded_for_parse.items():
