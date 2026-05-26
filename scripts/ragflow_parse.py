@@ -103,7 +103,6 @@ def cmd_run(args: argparse.Namespace) -> int:
     base_url, api_key = get_credentials(config)
     dataset_by_id = {ds.dataset_id: ds for ds in config_datasets(config)}
     target_datasets = pick_datasets(config, args.dataset)
-    deadline = time.time() + args.timeout
 
     # Collect documents to parse
     targets: dict[str, list[str]] = {}  # dataset_id -> doc_ids
@@ -132,12 +131,15 @@ def cmd_run(args: argparse.Namespace) -> int:
     # Poll loop
     all_doc_ids: dict[str, set[str]] = {did: set(ids) for did, ids in targets.items()}
     start_time = time.time()
+    last_progress_time = start_time
+    prev_total_done = 0
 
     print()
     while True:
         total_done = 0
         total_docs = 0
         any_running = False
+        total_fail = 0
 
         for dataset_id, doc_ids in all_doc_ids.items():
             ds = dataset_by_id[dataset_id]
@@ -145,46 +147,40 @@ def cmd_run(args: argparse.Namespace) -> int:
             summary = summarize_docs_status(docs)
             done_count = summary.get("done", 0)
             fail_count = summary.get("fail", 0)
-            running_count = summary.get("running", 0)
-            pending_count = summary.get("pending", 0)
             total_done += done_count
             total_docs += len(docs)
+            total_fail += fail_count
 
-            if running_count > 0 or pending_count > 0:
+            if summary.get("running", 0) > 0 or summary.get("pending", 0) > 0:
                 any_running = True
 
-            # Show per-document progress for running items
-            for doc in docs:
-                run = doc.get("run", "")
-                if run in ("RUNNING", ""):
-                    progress = doc.get("progress", 0) or 0
-                    chunks = doc.get("chunk_count", 0)
-                    print(f"  {progress_bar(progress)} {progress * 100:5.1f}%  chunks={chunks:<5d} {doc_label(doc)}")
+        # Reset inactivity timer when new documents finish
+        if total_done > prev_total_done:
+            last_progress_time = time.time()
+            prev_total_done = total_done
 
-            # Dataset summary
-            elapsed = time.time() - start_time
-            print(
-                f"  [{ds.dataset_name}] done={done_count} running={running_count} "
-                f"pending={pending_count} failed={fail_count}  ({elapsed:.0f}s)"
-            )
-
-        # Overall summary
+        # Overall progress line (overwrite in place)
         overall_pct = (total_done / total_docs * 100) if total_docs else 0
         elapsed = time.time() - start_time
-        print(f"  Overall: {total_done}/{total_docs} done ({overall_pct:.0f}%)  elapsed={elapsed:.0f}s")
-        print()
+        remaining = total_docs - total_done - total_fail
+        status_parts = f"done={total_done}"
+        if total_fail:
+            status_parts += f" fail={total_fail}"
+        if remaining:
+            status_parts += f" remaining={remaining}"
+        print(f"\r  {progress_bar(overall_pct)} {overall_pct:5.1f}%  {status_parts}  ({elapsed:.0f}s)", end="", flush=True)
 
         # Check completion
         if not any_running:
             break
-        if time.time() >= deadline:
-            print("Timeout reached. Some documents may still be processing.")
+        if time.time() - last_progress_time >= args.timeout:
+            print(f"\nNo progress for {args.timeout:.0f}s. {remaining} documents may still be processing.")
             return 1
 
         time.sleep(args.interval)
 
     # Final summary
-    print("=== Parse Complete ===")
+    print("\n=== Parse Complete ===")
     for dataset_id, doc_ids in all_doc_ids.items():
         ds = dataset_by_id[dataset_id]
         docs = refresh_docs(base_url, api_key, ds, doc_ids)
@@ -205,7 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = sub.add_parser("run", help="Trigger parsing and poll until completion.")
     run.add_argument("--dataset", action="append", help="Source dir, dataset name, or dataset id.")
     run.add_argument("--interval", type=float, default=5.0, help="Poll interval in seconds (default: 5).")
-    run.add_argument("--timeout", type=float, default=600.0, help="Max wait time in seconds (default: 600).")
+    run.add_argument("--timeout", type=float, default=600.0, help="Stop if no new documents finish for this many seconds (default: 600).")
     run.add_argument("--only-failed", action="store_true", help="Only re-parse documents that previously failed.")
     run.set_defaults(func=cmd_run)
 
