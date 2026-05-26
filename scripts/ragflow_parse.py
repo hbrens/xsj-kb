@@ -29,16 +29,21 @@ RUN_STATUS_LABELS = {
 }
 
 
-def trigger_parse(base_url: str, api_key: str, dataset: DatasetConfig, doc_ids: list[str]) -> None:
+def trigger_parse(base_url: str, api_key: str, dataset: DatasetConfig, doc_ids: list[str], batch_size: int = 100) -> None:
     if not doc_ids:
         return
-    request_json(
-        "POST",
-        base_url,
-        api_key,
-        f"/datasets/{dataset.dataset_id}/documents/parse",
-        json_body={"document_ids": doc_ids},
-    )
+    for i in range(0, len(doc_ids), batch_size):
+        batch = doc_ids[i : i + batch_size]
+        request_json(
+            "POST",
+            base_url,
+            api_key,
+            f"/datasets/{dataset.dataset_id}/documents/parse",
+            json_body={"document_ids": batch},
+        )
+        if len(doc_ids) > batch_size:
+            print(f"  triggered batch {i // batch_size + 1}/{(len(doc_ids) + batch_size - 1) // batch_size} ({len(batch)} docs)")
+            time.sleep(2)
 
 
 def refresh_docs(base_url: str, api_key: str, dataset: DatasetConfig, doc_ids: set[str]) -> list[dict]:
