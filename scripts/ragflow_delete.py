@@ -67,13 +67,18 @@ def cmd_all(args: argparse.Namespace) -> int:
             if not confirm_action(prompt, args.yes, args.dry_run):
                 print("  skipped.")
                 continue
-            request_json(
-                "DELETE",
-                base_url,
-                api_key,
-                f"/datasets/{dataset.dataset_id}/documents",
-                json_body={"delete_all": True},
-            )
+            try:
+                request_json(
+                    "DELETE",
+                    base_url,
+                    api_key,
+                    f"/datasets/{dataset.dataset_id}/documents",
+                    json_body={"delete_all": True},
+                )
+            except RuntimeError as e:
+                # RAGFlow may return error code even when delete partially succeeds
+                # (e.g. "Document not found" for already-deleted docs). Continue cleanup.
+                print(f"  warning: {e}")
             state.remove_dataset(dataset.source_dir)
             print(f"  deleted {len(docs)} documents.")
     finally:

@@ -459,13 +459,16 @@ def cmd_delete_all(args: argparse.Namespace) -> int:
                 raise SystemExit("delete-all requires --yes")
             print(f"delete all remote documents: {dataset.source_dir} -> {dataset.dataset_name}")
             if not args.dry_run:
-                request_json(
-                    "DELETE",
-                    base_url,
-                    api_key,
-                    f"/datasets/{dataset.dataset_id}/documents",
-                    json_body={"delete_all": True},
-                )
+                try:
+                    request_json(
+                        "DELETE",
+                        base_url,
+                        api_key,
+                        f"/datasets/{dataset.dataset_id}/documents",
+                        json_body={"delete_all": True},
+                    )
+                except RuntimeError as e:
+                    print(f"  warning: {e}")
                 state.remove_dataset(dataset.source_dir)
     finally:
         state.close()
