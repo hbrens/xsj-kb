@@ -13,6 +13,7 @@ Configuration lives in `scripts/ragflow_sources.json`. The current mapping was r
 
 ```bash
 .venv/bin/python scripts/ragflow_sync.py status
+.venv/bin/python scripts/ragflow_sync.py status --verify
 .venv/bin/python scripts/ragflow_sync.py upload --dry-run
 .venv/bin/python scripts/ragflow_sync.py upload --dataset 06_harmonyos-samples
 .venv/bin/python scripts/ragflow_sync.py upload --replace-changed --parse
@@ -20,10 +21,10 @@ Configuration lives in `scripts/ragflow_sources.json`. The current mapping was r
 .venv/bin/python scripts/ragflow_sync.py delete-all --dataset 06_harmonyos-samples --yes
 ```
 
-`upload` is serial and resumable. After each successful file upload it writes `var/ragflow-sync-state.json`, which is git-ignored. Re-running the same command skips files whose SHA-256 hash is unchanged.
+`upload` is serial and resumable. After each batch it writes state to `var/ragflow-sync-state.db` (SQLite), which is git-ignored. Re-running the same command skips files whose SHA-256 hash is unchanged.
+
+`status` compares local files against the local state DB. Add `--verify` to also query RAGFlow and update remote status (parse done, error, missing, etc.).
 
 Changed files are detected but skipped by default to avoid creating duplicates. Use `--replace-changed` to delete the old RAGFlow document and upload the changed file again.
-
-Directory information is kept by sending the `sources/` relative path as the multipart upload filename, matching RAGFlow's path-aware dataset upload behavior. Extensions that RAGFlow does not directly accept but are useful as source text, such as `.ets` and `.json5`, are uploaded as temporary `.txt` files with the original path written at the top.
 
 `delete-all` deletes every remote document in the selected dataset and clears local sync state for that source directory. It requires `--yes`.

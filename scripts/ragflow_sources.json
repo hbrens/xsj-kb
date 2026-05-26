@@ -1,7 +1,7 @@
 {
   "base_url_env": "RAGFLOW_MCP_BASE_URL",
   "api_key_env": "RAGFLOW_MCP_HOST_API_KEY",
-  "state_path": "var/ragflow-sync-state.json",
+  "state_path": "var/ragflow-sync-state.db",
   "sources_root": "sources",
   "default_include_extensions": [
     ".c",
