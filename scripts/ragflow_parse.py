@@ -151,14 +151,14 @@ def cmd_run(args: argparse.Namespace) -> int:
                 fail = summary.get("fail", 0)
                 running = summary.get("running", 0) + summary.get("pending", 0)
                 elapsed = time.time() - batch_start
-                pct = (done / len(batch_ids) * 100) if batch_ids else 0
+                pct = (done / len(batch_ids)) if batch_ids else 0
 
                 status_parts = f"done={done}/{len(batch_ids)}"
                 if fail:
                     status_parts += f" fail={fail}"
                 if running:
                     status_parts += f" running={running}"
-                print(f"\r  [{progress_bar(pct)}] {pct:5.1f}%  {status_parts}  ({elapsed:.0f}s)", end="", flush=True)
+                print(f"\r  [{progress_bar(pct)}] {pct*100:5.1f}%  {status_parts}  ({elapsed:.0f}s)", end="", flush=True)
 
                 if done > prev_done:
                     last_progress = time.time()
