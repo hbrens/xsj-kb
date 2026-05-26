@@ -327,6 +327,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     state = open_state(config)
     try:
         for dataset in pick_datasets(config, args.dataset):
+            base_url, api_key = get_credentials(config)
+            verify_remote(state, base_url, api_key, dataset)
             files = iter_source_files(config, dataset)
             counts: dict[str, int] = {"new": 0, "same": 0, "changed": 0, "missing_local": 0}
             live_keys: set[str] = set()
@@ -335,7 +337,7 @@ def cmd_status(args: argparse.Namespace) -> int:
                 live_keys.add(key)
                 digest = sha256_file(file_path)
                 item = state.get_file(key)
-                if not item:
+                if not item or item.get("remote_status") == "missing":
                     counts["new"] += 1
                 elif item.get("sha256") == digest and item.get("document_id"):
                     counts["same"] += 1
@@ -349,12 +351,6 @@ def cmd_status(args: argparse.Namespace) -> int:
                 f"new={counts['new']} same={counts['same']} "
                 f"changed={counts['changed']} missing_local={counts['missing_local']}"
             )
-            if args.verify:
-                base_url, api_key = get_credentials(config)
-                result = verify_remote(state, base_url, api_key, dataset)
-                remote_counts = state.count_by_remote_status(dataset.source_dir)
-                parts = [f"{k}={v}" for k, v in sorted(remote_counts.items()) if k]
-                print(f"  remote: {', '.join(parts)}")
     finally:
         state.close()
     return 0
@@ -499,7 +495,6 @@ def build_parser() -> argparse.ArgumentParser:
 
     status = sub.add_parser("status", help="Show local files compared with the local upload state.")
     status.add_argument("--dataset", action="append", help="Source dir, dataset name, or dataset id. Can be repeated.")
-    status.add_argument("--verify", action="store_true", help="Also query RAGFlow to verify remote document status.")
     status.set_defaults(func=cmd_status)
 
     upload = sub.add_parser("upload", help="Upload new files serially and resume from local state.")
