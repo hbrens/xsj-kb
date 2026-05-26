@@ -65,9 +65,9 @@ SUPPORTED_DIRECT_EXTENSIONS = {
     ".go", ".h", ".html", ".htm", ".ini", ".java", ".js",
     ".json", ".jsonl", ".ldjson", ".md", ".mdx", ".pdf", ".php",
     ".ppt", ".pptx", ".py", ".rtf", ".sh", ".sql", ".ts",
-    ".txt", ".xls", ".xlsx", ".xml", ".yml",
+    ".txt", ".xls", ".xlsx", ".yml",
 }
-TEXT_WRAP_EXTENSIONS = {".ets", ".json5", ".yaml"}
+TEXT_WRAP_EXTENSIONS = {".ets", ".json5", ".xml", ".yaml"}
 
 
 @dataclass(frozen=True)
