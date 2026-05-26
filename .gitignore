@@ -48,9 +48,7 @@ Desktop.ini
 logs/
 
 # Runtime data
-var/*.sqlite3
-var/*.sqlite3-*
-var/ragflow-sync-state.json
+var/
 
 # Source corpora
 sources/*
