@@ -29,7 +29,7 @@ uv run python mcp/server/server.py  # 启动 MCP 网关（默认 self-host，读
 
 ## MCP 审计
 
-MCP tool 调用会默认写入 SQLite 审计库，数据库位置为 `var/mcp_audit.sqlite3`。`var/` 目录会提交到 git，实际数据库文件和 WAL/SHM 文件不会提交。
+MCP tool 调用会默认写入 SQLite 审计库，数据库位置为 `var/mcp_audit.sqlite3`。审计范围只包含 MCP 网关在 `ragflow_retrieval` 调用中天然收到和返回的内容：tool 入参、实际发给 RAGFlow 的 retrieval payload、自动解析后的 dataset IDs、返回给 Agent 的检索结果与 chunk 来源信息。不会额外采集最终 Agent 回复或额外用户身份信息。
 
 可用环境变量：
 
@@ -38,4 +38,7 @@ RAGFLOW_MCP_AUDIT_ENABLED=true
 RAGFLOW_MCP_AUDIT_DB_PATH=var/mcp_audit.sqlite3
 RAGFLOW_MCP_AUDIT_LOG_QUESTION=true
 RAGFLOW_MCP_AUDIT_MAX_TEXT=1000
+RAGFLOW_MCP_AUDIT_MAX_INPUT_TEXT=8000
+RAGFLOW_MCP_AUDIT_MAX_CHUNK_TEXT=4000
+RAGFLOW_MCP_AUDIT_MAX_CHUNKS=100
 ```

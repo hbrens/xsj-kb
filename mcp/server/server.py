@@ -18,12 +18,13 @@ import json
 import logging
 import os
 import random
+import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from enum import StrEnum
 from functools import wraps
-from typing import Any
+from typing import Any, Callable
 
 import click
 import httpx
@@ -222,10 +223,13 @@ class RAGFlowConnector:
         rerank_id: str | None = None,
         keyword: bool = False,
         force_refresh: bool = False,
+        audit_hook: Callable[[dict], None] | None = None,
     ):
         if document_ids is None:
             document_ids = []
 
+        requested_dataset_ids = list(dataset_ids or [])
+        resolved_from_all = not bool(requested_dataset_ids)
         if not dataset_ids:
             logging.info("MCP retrieval omitted dataset_ids; resolving accessible datasets")
             dataset_ids = await self.resolve_dataset_ids(api_key=api_key)
@@ -245,6 +249,17 @@ class RAGFlowConnector:
             "dataset_ids": dataset_ids,
             "document_ids": document_ids,
         }
+        if audit_hook:
+            audit_hook(
+                {
+                    "operation": "ragflow_retrieval",
+                    "endpoint": "/api/v1/retrieval",
+                    "requested_dataset_ids": requested_dataset_ids,
+                    "resolved_dataset_ids": dataset_ids,
+                    "resolved_from_all_accessible": resolved_from_all,
+                    "request_json": data_json,
+                }
+            )
         # Send a POST request to the backend service (using requests library as an example, actual implementation may vary)
         res = await self._post("/retrieval", json=data_json, api_key=api_key)
         if not res or res.status_code != 200:
@@ -579,6 +594,7 @@ async def call_tool(
                 top_k=top_k,
                 rerank_id=rerank_id,
                 force_refresh=force_refresh,
+                audit_hook=lambda retrieval: audit_store.attach_retrieval(audit_call, retrieval),
             )
             await audit_store.record_success(audit_call, result)
             return result
@@ -726,6 +742,9 @@ def main(base_url, host, port, mode, api_key, transport_sse_enabled, transport_s
         db_path=os.environ.get("RAGFLOW_MCP_AUDIT_DB_PATH", str(DEFAULT_DB_PATH)),
         log_question=parse_bool_flag("RAGFLOW_MCP_AUDIT_LOG_QUESTION", True),
         max_text=int(os.environ.get("RAGFLOW_MCP_AUDIT_MAX_TEXT", "1000")),
+        max_input_text=int(os.environ.get("RAGFLOW_MCP_AUDIT_MAX_INPUT_TEXT", "8000")),
+        max_chunk_text=int(os.environ.get("RAGFLOW_MCP_AUDIT_MAX_CHUNK_TEXT", "4000")),
+        max_chunks=int(os.environ.get("RAGFLOW_MCP_AUDIT_MAX_CHUNKS", "100")),
     )
     audit_store.configure(audit_config)
 
