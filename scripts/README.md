@@ -1,30 +1,50 @@
-# RAGFlow source sync
+# RAGFlow 数据管理脚本
 
-These scripts sync local `sources/<source_dir>` folders into RAGFlow datasets.
+管理和同步本地 `sources/` 目录到 RAGFlow 数据集的工具集。
 
-Configuration lives in `scripts/ragflow_sources.json`. The current mapping was read from the local RAGFlow MySQL database:
+> 详细文档见 [`docs/scripts/`](../docs/scripts/)
 
-| source dir | RAGFlow dataset |
-| --- | --- |
-| `04_harmonyos-docs` | `04_harmonyos-docs` (`29c76db0585a11f1ae6e4fbffc0cb4e8`) |
-| `06_harmonyos-samples` | `harmonyos-samples` (`3a529d12585a11f1ae6e4fbffc0cb4e8`) |
+## 脚本一览
 
-## Commands
+| 脚本 | 说明 | 详细文档 |
+|------|------|---------|
+| `ragflow_sync.py` | 数据同步（上传/状态/替换/清空） | [ragflow-sync.md](../docs/scripts/ragflow-sync.md) |
+| `ragflow_delete.py` | 文档删除（按全部/模式/状态） | [ragflow-delete.md](../docs/scripts/ragflow-delete.md) |
+| `ragflow_parse.py` | 文档解析（批量触发/轮询进度） | [ragflow-parse.md](../docs/scripts/ragflow-parse.md) |
+| `state.py` | 同步状态管理（SQLite） | [state-management.md](../docs/scripts/state-management.md) |
+| `ragflow_sources.json` | 数据集映射配置 | — |
+
+## 快速上手
 
 ```bash
-.venv/bin/python scripts/ragflow_sync.py status
-.venv/bin/python scripts/ragflow_sync.py status --verify
-.venv/bin/python scripts/ragflow_sync.py upload --dry-run
-.venv/bin/python scripts/ragflow_sync.py upload --dataset 06_harmonyos-samples
-.venv/bin/python scripts/ragflow_sync.py upload --replace-changed --parse
-.venv/bin/python scripts/ragflow_sync.py list-remote
-.venv/bin/python scripts/ragflow_sync.py delete-all --dataset 06_harmonyos-samples --yes
+# 查看同步状态
+uv run scripts/ragflow_sync.py status
+uv run scripts/ragflow_sync.py status --verify
+
+# 上传文件到 RAGFlow
+uv run scripts/ragflow_sync.py upload --dry-run
+uv run scripts/ragflow_sync.py upload --dataset 06_harmonyos-samples
+uv run scripts/ragflow_sync.py upload --replace-changed --parse
+
+# 删除文档
+uv run scripts/ragflow_delete.py by-status --status fail --yes
+uv run scripts/ragflow_delete.py by-pattern --pattern "*.pdf" --dry-run
+
+# 触发解析
+uv run scripts/ragflow_parse.py run
+uv run scripts/ragflow_parse.py run --only-failed
+
+# 列出远端文档
+uv run scripts/ragflow_sync.py list-remote
+
+# 清空数据集
+uv run scripts/ragflow_sync.py delete-all --dataset 06_harmonyos-samples --yes
 ```
 
-`upload` is serial and resumable. After each batch it writes state to `var/ragflow-sync-state.db` (SQLite), which is git-ignored. Re-running the same command skips files whose SHA-256 hash is unchanged.
+## 配置
 
-`status` compares local files against the local state DB. Add `--verify` to also query RAGFlow and update remote status (parse done, error, missing, etc.).
+`ragflow_sources.json` 定义数据集映射和文件过滤规则。环境变量在项目根目录 `.env` 中配置。
 
-Changed files are detected but skipped by default to avoid creating duplicates. Use `--replace-changed` to delete the old RAGFlow document and upload the changed file again.
+## 状态数据库
 
-`delete-all` deletes every remote document in the selected dataset and clears local sync state for that source directory. It requires `--yes`.
+同步状态存储在 `var/ragflow-sync-state.db`（SQLite，git-ignored）。`upload` 命令支持中断后自动续传，通过 SHA-256 哈希检测文件变更。
