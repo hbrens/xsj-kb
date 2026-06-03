@@ -4,10 +4,11 @@
 
 ## 结构
 
-- `data/` — 数据源，按数据集分目录存放
-- `sync/` — 数据同步脚本（Hash 比对 → RAGFlow API）
+- `scripts/` — RAGFlow 数据管理脚本（同步/删除/解析/元数据）
+- `sources/` — 数据源，按数据集分目录存放
 - `mcp/` — MCP 审计网关
-- `skill/` — Skill 相关
+- `docs/` — 项目文档
+- `var/` — 运行时数据（状态数据库、审计库，git-ignored）
 
 ## 数据集
 
@@ -23,8 +24,20 @@
 ## 常用命令
 
 ```bash
-uv sync                          # 创建虚拟环境并安装依赖（venv 在 .venv/ 下）
-uv run python mcp/server/server.py  # 启动 MCP 网关（默认 self-host，读取 .env 中的 API key）
+uv sync                               # 创建虚拟环境并安装依赖
+uv run python mcp/server/server.py    # 启动 MCP 网关
+
+# 数据同步
+uv run scripts/ragflow_sync.py status
+uv run scripts/ragflow_sync.py upload --parse
+uv run scripts/ragflow_parse.py run
+
+# 文档删除
+uv run scripts/ragflow_delete.py by-status --status fail --yes
+
+# 文档元数据
+uv run scripts/ragflow_meta.py set-source-url --dry-run
+uv run scripts/ragflow_meta.py set-source-url
 ```
 
 ## MCP 审计

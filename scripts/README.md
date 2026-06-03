@@ -11,6 +11,7 @@
 | `ragflow_sync.py` | 数据同步（上传/状态/替换/清空） | [ragflow-sync.md](../docs/scripts/ragflow-sync.md) |
 | `ragflow_delete.py` | 文档删除（按全部/模式/状态） | [ragflow-delete.md](../docs/scripts/ragflow-delete.md) |
 | `ragflow_parse.py` | 文档解析（批量触发/轮询进度） | [ragflow-parse.md](../docs/scripts/ragflow-parse.md) |
+| `ragflow_meta.py` | 文档元数据管理（source_url等） | [ragflow-meta.md](../docs/scripts/ragflow-meta.md) |
 | `state.py` | 同步状态管理（SQLite） | [state-management.md](../docs/scripts/state-management.md) |
 | `ragflow_sources.json` | 数据集映射配置 | — |
 
@@ -39,6 +40,12 @@ uv run scripts/ragflow_sync.py list-remote
 
 # 清空数据集
 uv run scripts/ragflow_sync.py delete-all --dataset 06_harmonyos-samples --yes
+
+# 文档元数据
+uv run scripts/ragflow_meta.py set-source-url --dry-run
+uv run scripts/ragflow_meta.py set-source-url
+uv run scripts/ragflow_meta.py set-meta --set author=team --set version=1.0
+uv run scripts/ragflow_meta.py hash-source --limit 5
 ```
 
 ## 配置
