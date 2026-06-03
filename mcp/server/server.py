@@ -388,6 +388,14 @@ class RAGFlowConnector:
         if document_id and document_id in document_cache:
             mapped["document_metadata"] = document_cache[document_id]
 
+        # Promote wiki source URL to top-level for easier agent access
+        source_url = (
+            mapped.get("document_metadata", {})
+            .get("meta_fields", {})
+            .get("source_url", "")
+        )
+        mapped["wiki_source_url"] = source_url or ""
+
         return mapped
 
 
@@ -493,7 +501,7 @@ async def list_tools(*, connector: RAGFlowConnector, api_key: str) -> list[types
     return [
         types.Tool(
             name="ragflow_retrieval",
-            description="Retrieve relevant chunks from the RAGFlow retrieve interface based on the question. You can optionally specify dataset_ids to search only specific datasets, or omit dataset_ids entirely to search across ALL available datasets. You can also optionally specify document_ids to search within specific documents. When dataset_ids is not provided or is empty, the system will automatically search across all available datasets. Below is the list of all available datasets, including their descriptions and IDs:"
+            description="Retrieve relevant chunks from the RAGFlow retrieve interface based on the question. You can optionally specify dataset_ids to search only specific datasets, or omit dataset_ids entirely to search across ALL available datasets. You can also optionally specify document_ids to search within specific documents. When dataset_ids is not provided or is empty, the system will automatically search across all available datasets. Each returned chunk includes: document_name, dataset_name, wiki_source_url (the document's web source link, may be empty if not set), and document_metadata (full document metadata including meta_fields). Below is the list of all available datasets, including their descriptions and IDs:"
             + dataset_description,
             inputSchema={
                 "type": "object",
